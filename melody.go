@@ -56,3 +56,17 @@ func New() *Melody {
 		hub:                      hub,
 	}
 }
+
+// HandleRequest upgrades http requests to websocket connections and dispatches them to be handled by the melody instance.
+func (m *Melody) HandleRequest(w http.ResponseWriter, r *http.Request) error {
+	return m.HandleRequestWithKeys(w, r, nil)
+}
+
+func (m *Melody) HandleRequestWithKeys(w http.ResponseWriter, r *http.Request, keys map[string]interface{}) error {
+	if m.hub.isClosed() {
+		return ErrClosed
+	}
+
+	return nil
+
+}

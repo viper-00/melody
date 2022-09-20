@@ -22,7 +22,16 @@ type Session struct {
 }
 
 func (s *Session) writeMessage(message *envelope) {
+	if s.isClosed() {
+		s.melody.errorHandler(s, ErrWriteClosed)
+		return
+	}
 
+	select {
+	case s.output <- message:
+	default:
+		s.melody.errorHandler(s, ErrMessageBufferFull)
+	}
 }
 
 // Clsoe the session if exist
