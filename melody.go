@@ -38,6 +38,7 @@ func New() *Melody {
 
 	hub := newHub()
 
+	// running hub in the background
 	go hub.run()
 
 	return &Melody{
