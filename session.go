@@ -94,7 +94,37 @@ loop:
 }
 
 func (s *Session) readPump() {
+	s.conn.SetReadLimit(s.melody.Config.MaxMessageSize)
+	s.conn.SetReadDeadline(time.Now().Add(s.melody.Config.PongWait))
 
+	s.conn.SetPongHandler(func(string) error {
+		s.conn.SetReadDeadline(time.Now().Add(s.melody.Config.PongWait))
+		s.melody.pongHandler(s)
+		return nil
+	})
+
+	if s.melody.closeHandler != nil {
+		s.conn.SetCloseHandler(func(code int, text string) error {
+			return s.melody.closeHandler(s, code, text)
+		})
+	}
+
+	for {
+
+		t, message, err := s.conn.ReadMessage()
+		if err != nil {
+			s.melody.errorHandler(s, err)
+			break
+		}
+
+		if t == websocket.TextMessage {
+			s.melody.messageHandler(s, message)
+		}
+
+		if t == websocket.BinaryMessage {
+			s.melody.messageHandlerBinary(s, message)
+		}
+	}
 }
 
 func (s *Session) writeRaw(msg *envelope) error {
