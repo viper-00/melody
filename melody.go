@@ -2,6 +2,7 @@ package melody
 
 import (
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/websocket"
 )
@@ -62,10 +63,43 @@ func (m *Melody) HandleRequest(w http.ResponseWriter, r *http.Request) error {
 	return m.HandleRequestWithKeys(w, r, nil)
 }
 
+// HandleRequestWithKeys does the same as the HandleRequest but populates session.Keys with keys.
 func (m *Melody) HandleRequestWithKeys(w http.ResponseWriter, r *http.Request, keys map[string]interface{}) error {
 	if m.hub.isClosed() {
 		return ErrClosed
 	}
+
+	conn, err := m.Upgrader.Upgrade(w, r, w.Header())
+	if err != nil {
+		return err
+	}
+
+	session := &Session{
+		Request:    r,
+		Keys:       keys,
+		conn:       conn,
+		output:     make(chan *envelope, m.Config.MessageBufferSize),
+		outputDone: make(chan struct{}),
+		melody:     m,
+		open:       true,
+		rwmutex:    &sync.RWMutex{},
+	}
+
+	m.hub.register <- session
+
+	m.connectHandler(session)
+
+	go session.writePump()
+
+	session.readPump()
+
+	if !m.hub.isClosed() {
+		m.hub.unregister <- session
+	}
+
+	session.isClosed()
+
+	m.disconnectHandler(session)
 
 	return nil
 

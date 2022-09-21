@@ -3,6 +3,7 @@ package melody
 import (
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -50,4 +51,52 @@ func (s *Session) isClosed() bool {
 	defer s.rwmutex.Unlock()
 
 	return !s.open
+}
+
+func (s *Session) ping() {
+
+}
+
+func (s *Session) writePump() {
+	ticker := time.NewTicker(s.melody.Config.PingPeriod)
+	defer ticker.Stop()
+
+loop:
+	for {
+		select {
+		case msg := <-s.output:
+			err := s.writeRaw(msg)
+			if err != nil {
+				s.melody.errorHandler(s, err)
+				break loop
+			}
+
+			// websocket message type: TextMessage, BinaryMessage, CloseMessage, PingMessage, PongMessage
+			if msg.t == websocket.CloseMessage {
+				break loop
+			}
+
+			if msg.t == websocket.TextMessage {
+				s.melody.messageSentHandler(s, msg.msg)
+			}
+
+			if msg.t == websocket.BinaryMessage {
+				s.melody.messageSentHandlerBinary(s, msg.msg)
+			}
+		case <-ticker.C:
+			s.ping()
+		case _, ok := <-s.outputDone:
+			if !ok {
+				break loop
+			}
+		}
+	}
+}
+
+func (s *Session) readPump() {
+
+}
+
+func (s *Session) writeRaw(msg *envelope) error {
+	return nil
 }
