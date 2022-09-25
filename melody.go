@@ -114,3 +114,13 @@ func (m *Melody) Close() error {
 
 	return nil
 }
+
+// HandleMessage fires fn when a text message comes in.
+func (m *Melody) HandleMessage(fn func(*Session, []byte)) {
+	m.messageHandler = fn
+}
+
+// HandlePong fires fn when a pong is received from a session.
+func (m *Melody) HandlePong(fn func(*Session)) {
+	m.pongHandler = fn
+}

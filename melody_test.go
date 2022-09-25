@@ -31,6 +31,14 @@ func NewDialer(url string) (*websocket.Conn, error) {
 	return conn, err
 }
 
+func NewTestServerHandler(handler handleMessageFunc) *TestServer {
+	m := New()
+	m.HandleMessage(handler)
+	return &TestServer{
+		m: m,
+	}
+}
+
 func TestStop(t *testing.T) {
 	new := NewTestServer()
 	server := httptest.NewServer(new)
@@ -67,5 +75,35 @@ func TestPingPong(t *testing.T) {
 	_, _, err = conn.ReadMessage()
 	if err == nil {
 		t.Error("There should be an error")
+	}
+}
+
+func TestPong(t *testing.T) {
+	server := NewTestServerHandler(func(session *Session, msg []byte) {
+		session.Write(msg)
+	})
+
+	server.m.Config.PongWait = time.Second
+	server.m.Config.PingPeriod = time.Second * 9 / 10
+	http := httptest.NewServer(server)
+	defer http.Close()
+
+	conn, err := NewDialer(http.URL)
+	if err != nil {
+		t.Error(err)
+	}
+	defer conn.Close()
+
+	fired := false
+	server.m.HandlePong(func(s *Session) {
+		fired = true
+	})
+
+	conn.WriteMessage(websocket.PongMessage, nil)
+
+	time.Sleep(time.Millisecond)
+
+	if !fired {
+		t.Error("should have fired ping handler")
 	}
 }

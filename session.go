@@ -156,3 +156,14 @@ func (s *Session) Close() error {
 
 	return nil
 }
+
+// Write writes a message to session.
+func (s *Session) Write(msg []byte) error {
+	if s.closed() {
+		return ErrSessionClosed
+	}
+
+	s.writeMessage(&envelope{t: websocket.TextMessage, msg: msg})
+
+	return nil
+}
