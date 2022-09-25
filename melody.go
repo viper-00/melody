@@ -65,7 +65,7 @@ func (m *Melody) HandleRequest(w http.ResponseWriter, r *http.Request) error {
 
 // HandleRequestWithKeys does the same as the HandleRequest but populates session.Keys with keys.
 func (m *Melody) HandleRequestWithKeys(w http.ResponseWriter, r *http.Request, keys map[string]interface{}) error {
-	if m.hub.isClosed() {
+	if m.hub.closed() {
 		return ErrClosed
 	}
 
@@ -93,14 +93,24 @@ func (m *Melody) HandleRequestWithKeys(w http.ResponseWriter, r *http.Request, k
 
 	session.readPump()
 
-	if !m.hub.isClosed() {
+	if !m.hub.closed() {
 		m.hub.unregister <- session
 	}
 
-	session.isClosed()
+	session.close()
 
 	m.disconnectHandler(session)
 
 	return nil
+}
 
+// Close closes the melody instance and all connected sessions.
+func (m *Melody) Close() error {
+	if m.hub.closed() {
+		return ErrClosed
+	}
+
+	m.hub.exit <- &envelope{t: websocket.CloseMessage, msg: []byte{}}
+
+	return nil
 }

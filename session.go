@@ -8,8 +8,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var ()
-
 // Session wrapper around websocket connections.
 type Session struct {
 	Request    *http.Request
@@ -23,7 +21,7 @@ type Session struct {
 }
 
 func (s *Session) writeMessage(message *envelope) {
-	if s.isClosed() {
+	if s.closed() {
 		s.melody.errorHandler(s, ErrWriteClosed)
 		return
 	}
@@ -35,26 +33,27 @@ func (s *Session) writeMessage(message *envelope) {
 	}
 }
 
-// Clsoe the session if exist
-func (s *Session) Close() error {
-	if s.isClosed() {
-		return ErrSessionClosed
+// clsoe the session if exist
+func (s *Session) close() {
+	s.rwmutex.Lock()
+	open := s.open
+	s.open = false
+	s.rwmutex.Unlock()
+	if open {
+		s.conn.Close()
+		close(s.outputDone)
 	}
-
-	s.writeMessage(&envelope{t: websocket.CloseMessage, msg: []byte{}})
-
-	return nil
 }
 
-func (s *Session) isClosed() bool {
-	s.rwmutex.Lock()
-	defer s.rwmutex.Unlock()
+func (s *Session) closed() bool {
+	s.rwmutex.RLock()
+	defer s.rwmutex.RUnlock()
 
 	return !s.open
 }
 
 func (s *Session) ping() {
-
+	s.writeRaw(&envelope{t: websocket.PingMessage, msg: []byte{}})
 }
 
 func (s *Session) writePump() {
@@ -128,5 +127,32 @@ func (s *Session) readPump() {
 }
 
 func (s *Session) writeRaw(msg *envelope) error {
+	if s.closed() {
+		return ErrWriteClosed
+	}
+
+	s.conn.SetWriteDeadline(time.Now().Add(s.melody.Config.WriteWait))
+
+	err := s.conn.WriteMessage(msg.t, msg.msg)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// IsClosed returns the status of the connection.
+func (s *Session) IsClosed() bool {
+	return s.closed()
+}
+
+// Close the session.
+func (s *Session) Close() error {
+	if s.closed() {
+		return ErrSessionClosed
+	}
+
+	s.writeMessage(&envelope{t: websocket.CloseMessage, msg: []byte{}})
+
 	return nil
 }

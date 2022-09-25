@@ -64,7 +64,7 @@ loop:
 	}
 }
 
-func (hub *hub) isClosed() bool {
+func (hub *hub) closed() bool {
 	hub.rwmutex.RLock()
 	defer hub.rwmutex.RUnlock()
 	return !hub.open
