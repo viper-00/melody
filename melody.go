@@ -146,3 +146,8 @@ func (m *Melody) Broadcast(msg []byte) error {
 
 	return nil
 }
+
+// HandleError fires fn when a session has an error.
+func (m *Melody) HandleError(fn func(*Session, error)) {
+	m.errorHandler = fn
+}

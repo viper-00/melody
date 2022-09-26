@@ -3,6 +3,7 @@ package melody
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/quick"
@@ -218,8 +219,78 @@ func TestBroadcast(t *testing.T) {
 }
 
 func TestUpgrader(t *testing.T) {
+	broadcast := NewTestServer()
+	broadcast.m.HandleMessage(func(session *Session, msg []byte) {
+		session.Write(msg)
+	})
 
+	server := httptest.NewServer(broadcast)
+	defer server.Close()
+
+	broadcast.m.Upgrader = &websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin:     func(r *http.Request) bool { return false },
+	}
+
+	broadcast.m.HandleError(func(session *Session, err error) {
+		if err == nil || err.Error() != "websocket: origin not allowed" {
+			t.Error("there should be a origin error")
+		}
+	})
+
+	_, err := NewDialer(server.URL)
+	if err == nil || err.Error() != "websocket: bad handshake" {
+		t.Error("there should be a bad handshake error")
+	}
 }
 
 func TestMetadata(t *testing.T) {
+	server := NewTestServer()
+	server.m.HandleConnect(func(session *Session) {
+		session.Set("stamp", time.Now().UnixNano())
+	})
+	server.m.HandleMessage(func(session *Session, msg []byte) {
+		stamp := session.MustGet("stamp").(int64)
+		session.Write([]byte(strconv.Itoa(int(stamp))))
+	})
+
+	http := httptest.NewServer(server)
+	defer http.Close()
+
+	fn := func(msg string) bool {
+		conn, err := NewDialer(http.URL)
+		if err != nil {
+			t.Error(err)
+			return false
+		}
+		defer conn.Close()
+
+		conn.WriteMessage(websocket.TextMessage, []byte(msg))
+
+		_, ret, err := conn.ReadMessage()
+		if err != nil {
+			t.Error(err)
+			return false
+		}
+
+		stamp, err := strconv.Atoi(string(ret))
+		if err != nil {
+			t.Error(err)
+			return false
+		}
+
+		diff := int(time.Now().UnixNano()) - stamp
+
+		if diff <= 0 {
+			t.Errorf("diff should be above 0 %d", diff)
+			return false
+		}
+
+		return true
+	}
+
+	if err := quick.Check(fn, nil); err != nil {
+		t.Error(err)
+	}
 }

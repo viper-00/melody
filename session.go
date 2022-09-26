@@ -167,3 +167,33 @@ func (s *Session) Write(msg []byte) error {
 
 	return nil
 }
+
+// Set is used to store a new key/value pair exclusivelly for this session.
+// It also lazy initializes s.Keys if it was not used previously.
+func (s *Session) Set(key string, value interface{}) {
+	if s.Keys == nil {
+		s.Keys = make(map[string]interface{})
+	}
+
+	s.Keys[key] = value
+}
+
+// Get returns the value for the given key.
+// If the value does not exists it returns (nil, false)
+func (s *Session) Get(key string) (value interface{}, exists bool) {
+
+	if s.Keys != nil {
+		value, exists = s.Keys[key]
+	}
+
+	return
+}
+
+// MustGet returns the value for the given key if it exists, otherwise it panics.
+func (s *Session) MustGet(key string) interface{} {
+	if value, exists := s.Get(key); exists {
+		return value
+	}
+
+	panic("Key \"" + key + "\" does not exist")
+}
