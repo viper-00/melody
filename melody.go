@@ -124,3 +124,25 @@ func (m *Melody) HandleMessage(fn func(*Session, []byte)) {
 func (m *Melody) HandlePong(fn func(*Session)) {
 	m.pongHandler = fn
 }
+
+// HandleConnect fires fn when a session connects.
+func (m *Melody) HandleConnect(fn func(session *Session)) {
+	m.connectHandler = fn
+}
+
+// HandleDisconnect fires fn when a session disconnects.
+func (m *Melody) HandleDisconnect(fn func(session *Session)) {
+	m.disconnectHandler = fn
+}
+
+// Broadcast broadcasts a text message to all sessions.
+func (m *Melody) Broadcast(msg []byte) error {
+	if m.hub.closed() {
+		return ErrClosed
+	}
+
+	message := &envelope{t: websocket.TextMessage, msg: msg}
+	m.hub.broadcast <- message
+
+	return nil
+}

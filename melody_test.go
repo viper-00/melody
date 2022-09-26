@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/quick"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -106,4 +107,119 @@ func TestPong(t *testing.T) {
 	if !fired {
 		t.Error("should have fired ping handler")
 	}
+}
+
+func TestEcho(t *testing.T) {
+	server := NewTestServerHandler(func(session *Session, msg []byte) {
+		session.Write(msg)
+	})
+
+	http := httptest.NewServer(server)
+	defer http.Close()
+
+	fn := func(msg string) bool {
+		conn, err := NewDialer(http.URL)
+		if err != nil {
+			t.Error(err)
+			return false
+		}
+		defer conn.Close()
+
+		conn.WriteMessage(websocket.TextMessage, []byte(msg))
+
+		_, ret, err := conn.ReadMessage()
+		if err != nil {
+			t.Error(err)
+			return false
+		}
+
+		if msg != string(ret) {
+			t.Errorf("%s should equal %s", msg, string(ret))
+			return false
+		}
+
+		return true
+	}
+
+	if err := quick.Check(fn, nil); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestHandlers(t *testing.T) {
+	server := NewTestServer()
+	server.m.HandleMessage(func(session *Session, msg []byte) {
+		session.Write(msg)
+	})
+
+	http := httptest.NewServer(server)
+	defer http.Close()
+
+	var q *Session
+
+	// connect the server
+	server.m.HandleConnect(func(session *Session) {
+		q = session
+		session.Close()
+	})
+
+	// disconnect the server
+	server.m.HandleDisconnect(func(session *Session) {
+		if q != session {
+			t.Error("disconnecting the session should be the same as connecting")
+		}
+	})
+
+	NewDialer(http.URL)
+}
+
+func TestBroadcast(t *testing.T) {
+	broadcast := NewTestServer()
+	broadcast.m.HandleMessage(func(session *Session, msg []byte) {
+		broadcast.m.Broadcast(msg)
+	})
+	http := httptest.NewServer(broadcast)
+	defer http.Close()
+
+	n := 10
+
+	fn := func(msg string) bool {
+		conn, _ := NewDialer(http.URL)
+		defer conn.Close()
+
+		listeners := make([]*websocket.Conn, n)
+		for i := 0; i < n; i++ {
+			listener, _ := NewDialer(http.URL)
+			listeners[i] = listener
+			defer listeners[i].Close()
+		}
+
+		conn.WriteMessage(websocket.TextMessage, []byte(msg))
+
+		for i := 0; i < n; i++ {
+			_, ret, err := listeners[i].ReadMessage()
+			if err != nil {
+				t.Error(err)
+				return false
+			}
+
+			if msg != string(ret) {
+				t.Errorf("%s should be equal %s", msg, string(ret))
+				return false
+			}
+		}
+
+		return true
+	}
+
+	if !fn("test") {
+		t.Errorf("should not be false")
+	}
+}
+
+func TestUpgrader(t *testing.T) {
+
+}
+
+func TestMetadata(t *testing.T) {
 }
