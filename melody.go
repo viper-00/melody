@@ -168,3 +168,22 @@ func (m *Melody) BroadcastBinary(msg []byte) error {
 
 	return nil
 }
+
+// BroadcastBinaryOthers broadcasts a binary message to all sessions except session s.
+func (m *Melody) BroadcastBinaryOthers(msg []byte, s *Session) error {
+	return m.BroadcastBinaryFilter(msg, func(q *Session) bool {
+		return s != q
+	})
+}
+
+// BroadcastBinaryFilter broadcasts a binary message to all sessions that fn returns true for.
+func (m *Melody) BroadcastBinaryFilter(msg []byte, fn func(*Session) bool) error {
+	if m.hub.closed() {
+		return ErrClosed
+	}
+
+	message := &envelope{t: websocket.BinaryMessage, msg: msg, filter: fn}
+	m.hub.broadcast <- message
+
+	return nil
+}

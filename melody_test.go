@@ -365,3 +365,55 @@ func TestBroadcastBinary(t *testing.T) {
 		t.Error("something error occur.")
 	}
 }
+
+func TestBroadcastBinaryOthers(t *testing.T) {
+	broadcast := NewTestServer()
+	broadcast.m.HandleMessageBinary(func(session *Session, msg []byte) {
+		broadcast.m.BroadcastBinaryOthers(msg, session)
+	})
+	broadcast.m.Config.PongWait = time.Second
+	broadcast.m.Config.PingPeriod = time.Second * 9 / 10
+	server := httptest.NewServer(broadcast)
+	defer server.Close()
+
+	n := 10
+
+	fn := func(msg []byte) bool {
+		conn, _ := NewDialer(server.URL)
+		defer conn.Close()
+
+		listeners := make([]*websocket.Conn, n)
+		for i := 0; i < n; i++ {
+			listener, _ := NewDialer(server.URL)
+			listeners[i] = listener
+			defer listeners[i].Close()
+		}
+
+		conn.WriteMessage(websocket.BinaryMessage, []byte(msg))
+
+		for i := 0; i < n; i++ {
+			messageType, ret, err := listeners[i].ReadMessage()
+
+			if err != nil {
+				t.Error(err)
+				return false
+			}
+
+			if messageType != websocket.BinaryMessage {
+				t.Errorf("message type should be BinaryMessage")
+				return false
+			}
+
+			if !bytes.Equal(msg, ret) {
+				t.Errorf("%v should equal %v", msg, ret)
+				return false
+			}
+		}
+
+		return true
+	}
+
+	if !fn([]byte{2, 3, 5, 7, 11}) {
+		t.Errorf("should not be false")
+	}
+}
