@@ -151,3 +151,20 @@ func (m *Melody) Broadcast(msg []byte) error {
 func (m *Melody) HandleError(fn func(*Session, error)) {
 	m.errorHandler = fn
 }
+
+// HandleMessageBinary fires fn when binary message comes in.
+func (m *Melody) HandleMessageBinary(fn func(*Session, []byte)) {
+	m.messageHandlerBinary = fn
+}
+
+// BroadcastBinary broadcasts a binary message to all sessions.
+func (m *Melody) BroadcastBinary(msg []byte) error {
+	if m.hub.closed() {
+		return ErrClosed
+	}
+
+	message := &envelope{t: websocket.BinaryMessage, msg: msg}
+	m.hub.broadcast <- message
+
+	return nil
+}

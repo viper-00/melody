@@ -1,6 +1,7 @@
 package melody
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -63,14 +64,13 @@ func TestPingPong(t *testing.T) {
 	defer server.Close()
 
 	conn, err := NewDialer(server.URL)
+	if err != nil {
+		t.Error(err)
+	}
 	conn.SetPingHandler(func(string) error {
 		return nil
 	})
 	defer conn.Close()
-
-	if err != nil {
-		t.Error(err)
-	}
 
 	conn.WriteMessage(websocket.TextMessage, []byte("test"))
 
@@ -185,12 +185,22 @@ func TestBroadcast(t *testing.T) {
 	n := 10
 
 	fn := func(msg string) bool {
-		conn, _ := NewDialer(http.URL)
+		conn, err := NewDialer(http.URL)
+
+		if err != nil {
+			t.Error(err)
+		}
+
 		defer conn.Close()
 
 		listeners := make([]*websocket.Conn, n)
 		for i := 0; i < n; i++ {
-			listener, _ := NewDialer(http.URL)
+			listener, err := NewDialer(http.URL)
+
+			if err != nil {
+				t.Error(err)
+			}
+
 			listeners[i] = listener
 			defer listeners[i].Close()
 		}
@@ -292,5 +302,66 @@ func TestMetadata(t *testing.T) {
 
 	if err := quick.Check(fn, nil); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestBroadcastBinary(t *testing.T) {
+	server := NewTestServer()
+	server.m.HandleMessageBinary(func(session *Session, msg []byte) {
+		server.m.BroadcastBinary(msg)
+	})
+
+	http := httptest.NewServer(server)
+	defer http.Close()
+
+	n := 10
+
+	fn := func(msg []byte) bool {
+		conn, err := NewDialer(http.URL)
+
+		if err != nil {
+			t.Error(err)
+			return false
+		}
+
+		defer conn.Close()
+
+		listeners := make([]*websocket.Conn, n)
+		for i := 0; i < n; i++ {
+			listener, err := NewDialer(http.URL)
+
+			if err != nil {
+				t.Error(err)
+				return false
+			}
+
+			listeners[i] = listener
+			defer listeners[i].Close()
+		}
+
+		conn.WriteMessage(websocket.BinaryMessage, []byte(msg))
+
+		for i := 0; i < n; i++ {
+			messageType, ret, err := listeners[i].ReadMessage()
+			if err != nil {
+				t.Error(err)
+				return false
+			}
+
+			if messageType != websocket.BinaryMessage {
+				t.Error("message type should be BinaryMessage")
+				return false
+			}
+
+			if !bytes.Equal(msg, ret) {
+				t.Errorf("%v should equal %v", msg, ret)
+				return false
+			}
+		}
+		return true
+	}
+
+	if !fn([]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}) {
+		t.Error("something error occur.")
 	}
 }
