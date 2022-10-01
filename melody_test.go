@@ -2,6 +2,7 @@ package melody
 
 import (
 	"bytes"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -415,5 +416,276 @@ func TestBroadcastBinaryOthers(t *testing.T) {
 
 	if !fn([]byte{2, 3, 5, 7, 11}) {
 		t.Errorf("should not be false")
+	}
+}
+
+func TestWriteClosed(t *testing.T) {
+	server := NewTestServerHandler(func(session *Session, msg []byte) {
+		session.Write(msg)
+	})
+	http := httptest.NewServer(server)
+	defer http.Close()
+
+	fn := func(msg string) bool {
+		conn, err := NewDialer(http.URL)
+		if err != nil {
+			t.Error(err)
+			return false
+		}
+
+		conn.WriteMessage(websocket.TextMessage, []byte(msg))
+
+		server.m.HandleConnect(func(s *Session) {
+			s.Close()
+		})
+
+		server.m.HandleDisconnect(func(s *Session) {
+			err := s.Write([]byte("hello world"))
+			if err == nil {
+				t.Error("There should be an error")
+			}
+		})
+
+		return true
+	}
+
+	if err := quick.Check(fn, nil); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestLen(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	connect := int(rand.Int31n(100))
+	disconnect := rand.Float32()
+	conns := make([]*websocket.Conn, connect)
+	defer func() {
+		for _, conn := range conns {
+			if conn != nil {
+				conn.Close()
+			}
+		}
+	}()
+
+	server := NewTestServerHandler(func(session *Session, msg []byte) {})
+	http := httptest.NewServer(server)
+
+	disconnected := 0
+	for i := 0; i < connect; i++ {
+		conn, err := NewDialer(http.URL)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if rand.Float32() < disconnect {
+			conns[i] = nil
+			disconnected++
+			conn.Close()
+			continue
+		}
+
+		conns[i] = conn
+	}
+
+	time.Sleep(time.Millisecond)
+
+	connected := connect - disconnected
+
+	if server.m.Len() != connected {
+		t.Errorf("melody length %d should equal %d", server.m.Len(), connected)
+	}
+}
+
+func TestGetSessions(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	connect := int(rand.Int31n(100))
+	disconnect := rand.Float32()
+	conns := make([]*websocket.Conn, connect)
+	defer func() {
+		for _, conn := range conns {
+			if conn != nil {
+				conn.Close()
+			}
+		}
+	}()
+
+	server := NewTestServerHandler(func(session *Session, msg []byte) {})
+	http := httptest.NewServer(server)
+	defer http.Close()
+
+	disconnected := 0
+	for i := 0; i < connect; i++ {
+		conn, err := NewDialer(http.URL)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if rand.Float32() < disconnect {
+			conns[i] = nil
+			disconnected++
+			conn.Close()
+			continue
+		}
+
+		conns[i] = conn
+	}
+
+	time.Sleep(time.Millisecond)
+
+	connected := connect - disconnected
+
+	sessions, err := server.m.Sessions()
+	if err != nil {
+		t.Fatalf("error retrieving sessions: %v", err.Error())
+	}
+
+	if len(sessions) != connected {
+		t.Errorf("melody sessions %d should equal %d", len(sessions), connected)
+	}
+}
+
+func TestEchoBinary(t *testing.T) {
+	server := NewTestServer()
+	server.m.HandleMessageBinary(func(session *Session, msg []byte) {
+		session.WriteBinary(msg)
+	})
+	http := httptest.NewServer(server)
+	defer http.Close()
+	fn := func(msg string) bool {
+		conn, err := NewDialer(http.URL)
+		if err != nil {
+			t.Error(err)
+			return false
+		}
+
+		defer conn.Close()
+
+		conn.WriteMessage(websocket.BinaryMessage, []byte(msg))
+
+		_, ret, err := conn.ReadMessage()
+		if err != nil {
+			t.Error(err)
+			return false
+		}
+
+		if msg != string(ret) {
+			t.Errorf("%s should be equal %s", msg, string(ret))
+			return false
+		}
+
+		return true
+	}
+
+	if err := quick.Check(fn, nil); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestBroadcastFilter(t *testing.T) {
+	broadcast := NewTestServer()
+	broadcast.m.HandleMessage(func(session *Session, msg []byte) {
+		broadcast.m.BroadcastFilter(msg, func(q *Session) bool {
+			return session == q
+		})
+	})
+
+	server := httptest.NewServer(broadcast)
+	defer server.Close()
+
+	fn := func(msg string) bool {
+		conn, err := NewDialer(server.URL)
+		if err != nil {
+			t.Error(err)
+			return false
+		}
+		defer conn.Close()
+
+		conn.WriteMessage(websocket.TextMessage, []byte(msg))
+
+		_, ret, err := conn.ReadMessage()
+		if err != nil {
+			t.Error(err)
+			return false
+		}
+
+		if msg != string(ret) {
+			t.Errorf("%s should equal %s", msg, string(ret))
+			return false
+		}
+
+		return true
+	}
+
+	if !fn("test") {
+		t.Errorf("should not be false")
+	}
+}
+
+func TestSmallMessageBuffer(t *testing.T) {
+	server := NewTestServerHandler(func(session *Session, msg []byte) {
+		session.Write(msg)
+	})
+
+	server.m.Config.MessageBufferSize = 0
+	server.m.HandleError(func(s *Session, err error) {
+		if err == nil {
+			t.Error("there should be a buffer full error here")
+		}
+	})
+
+	http := httptest.NewServer(server)
+	defer http.Close()
+
+	conn, err := NewDialer(http.URL)
+	if err != nil {
+		t.Error(err)
+	}
+	defer conn.Close()
+
+	conn.WriteMessage(websocket.TextMessage, []byte("abcdef"))
+}
+
+func BenchmarkSessionWrite(b *testing.B) {
+	server := NewTestServerHandler(func(session *Session, msg []byte) {
+		session.Write(msg)
+	})
+
+	http := httptest.NewServer(server)
+	conn, _ := NewDialer(http.URL)
+	defer http.Close()
+	defer conn.Close()
+
+	for n := 0; n < b.N; n++ {
+		conn.WriteMessage(websocket.TextMessage, []byte("test"))
+		conn.ReadMessage()
+	}
+}
+
+func BenchmarkBroadcast(b *testing.B) {
+	server := NewTestServerHandler(func(session *Session, msg []byte) {
+		session.Write(msg)
+	})
+
+	http := httptest.NewServer(server)
+	defer http.Close()
+
+	conns := make([]*websocket.Conn, 0)
+	num := 100
+
+	for i := 0; i < num; i++ {
+		conn, _ := NewDialer(http.URL)
+		conns = append(conns, conn)
+	}
+
+	for n := 0; n < b.N; n++ {
+		server.m.Broadcast([]byte("test"))
+
+		for i := 0; i < num; i++ {
+			conns[i].ReadMessage()
+		}
+	}
+
+	for i := 0; i < num; i++ {
+		conns[i].Close()
 	}
 }

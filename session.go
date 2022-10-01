@@ -197,3 +197,14 @@ func (s *Session) MustGet(key string) interface{} {
 
 	panic("Key \"" + key + "\" does not exist")
 }
+
+// WriteBinary writes a binary message to session.
+func (s *Session) WriteBinary(msg []byte) error {
+	if s.closed() {
+		return ErrSessionClosed
+	}
+
+	s.writeMessage(&envelope{t: websocket.BinaryMessage, msg: msg})
+
+	return nil
+}

@@ -187,3 +187,30 @@ func (m *Melody) BroadcastBinaryFilter(msg []byte, fn func(*Session) bool) error
 
 	return nil
 }
+
+// Len return the number of connected sessions.
+func (m *Melody) Len() int {
+	return m.hub.len()
+}
+
+// Sessions returna all sessions.
+func (m *Melody) Sessions() ([]*Session, error) {
+	if m.hub.closed() {
+		return nil, ErrClosed
+	}
+
+	return m.hub.all(), nil
+}
+
+// BroadcastFilter broadcasts a text message to all sessions that fn returns true for.
+func (m *Melody) BroadcastFilter(msg []byte, fn func(*Session) bool) error {
+	if m.hub.closed() {
+		return ErrClosed
+	}
+
+	message := &envelope{t: websocket.TextMessage, msg: msg, filter: fn}
+
+	m.hub.broadcast <- message
+
+	return nil
+}

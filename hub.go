@@ -69,3 +69,22 @@ func (hub *hub) closed() bool {
 	defer hub.rwmutex.RUnlock()
 	return !hub.open
 }
+
+func (hub *hub) len() int {
+	hub.rwmutex.RLock()
+	defer hub.rwmutex.RUnlock()
+
+	return len(hub.sessions)
+}
+
+func (hub *hub) all() []*Session {
+	hub.rwmutex.RLock()
+	defer hub.rwmutex.RUnlock()
+
+	s := make([]*Session, 0, len(hub.sessions))
+	for v := range hub.sessions {
+		s = append(s, v)
+	}
+
+	return s
+}
